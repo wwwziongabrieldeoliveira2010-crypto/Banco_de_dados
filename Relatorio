@@ -1,1 +1,110 @@
+RELATÓRIO DO PROJETO DE BANCO DE DADOS – OFICINA MECÂNICA
+
+1. INTRODUÇÃO
+
+Neste trabalho, desenvolvemos um banco de dados para organizar as informações de uma oficina mecânica. A proposta foi reunir, em um mesmo sistema, o cadastro dos clientes, os veículos, os mecânicos, os serviços oferecidos e as ordens de serviço. Também incluímos um histórico de alterações de preços, para não perder o registro de quando um serviço ficou mais caro ou mais barato.
+
+O arquivo principal do projeto é o Banco_de_Dados.sql, com a criação do banco ofmi, das tabelas, das procedures, dos triggers, dos dados de exemplo e das consultas. Na revisão do nosso arquivo, percebemos que algumas partes usam nomes de colunas diferentes dos que foram definidos no início. Por isso, explicamos abaixo tanto a estrutura planejada quanto os ajustes que ainda são necessários para executar tudo junto.
+
+2. DER – DIAGRAMA ENTIDADE-RELACIONAMENTO
+
+O projeto possui sete tabelas: clientes, veiculos, mecanicos, servicos, ordens_servico, itens_ordem e historico_precos. O arquivo enviado não inclui uma imagem do DER, então representamos aqui os relacionamentos encontrados nas chaves estrangeiras da criação das tabelas.
+
+    clientes          (1) ------ (N) veiculos
+    veiculos          (1) ------ (N) ordens_servico
+    mecanicos         (1) ------ (N) ordens_servico
+    ordens_servico    (1) ------ (N) itens_ordem
+    servicos          (1) ------ (N) itens_ordem
+    servicos          (1) ------ (N) historico_precos
+
+Um cliente pode ter vários veículos, mas cada veículo pertence a um cliente. Cada ordem de serviço se refere a um veículo e a um mecânico. Uma ordem pode conter vários itens, e cada item corresponde a um serviço cadastrado. Assim, uma ordem pode ter vários serviços e um mesmo serviço pode aparecer em várias ordens: a tabela itens_ordem faz essa ligação. Já historico_precos guarda as mudanças de preço de cada serviço.
+
+As ligações declaradas na criação das tabelas são:
+- veiculos.cliente_id -> clientes.id_cliente
+- ordens_servico.veiculo_id -> veiculos.id_veiculo
+- ordens_servico.mecanico_id -> mecanicos.id_mecanico
+- itens_ordem.ordem_id -> ordens_servico.id_ordem
+- itens_ordem.servico_id -> servicos.id_servico
+- historico_precos.servico_id -> servicos.id_servico
+
+3. ESTRUTURA DO BANCO E RELACIONAMENTOS
+
+Na tabela clientes, colocamos o identificador do cliente, o nome e o CPF. O CPF tem a restrição UNIQUE para evitar dois cadastros com o mesmo documento. Em veiculos, guardamos a placa, o modelo e o vínculo com o dono do veículo. A placa também não pode se repetir.
+
+A tabela mecanicos guarda o nome e a especialidade de cada profissional. A de servicos registra a descrição e o preço dos serviços oferecidos. Nesse caso, usamos DECIMAL para os valores e CHECK para impedir preços negativos.
+
+Em ordens_servico, ficam a data de abertura, a data de finalização, o status, o veículo atendido e o mecânico responsável. A data de abertura recebe automaticamente o momento do cadastro, caso não seja informada. A tabela itens_ordem liga as ordens aos serviços e guarda o preço praticado naquele atendimento. A historico_precos registra o valor anterior, o valor novo e a data da alteração.
+
+As chaves primárias identificam cada registro, enquanto as chaves estrangeiras evitam referências a clientes, veículos, mecânicos, ordens ou serviços que não existem. Isso ajuda a manter os dados organizados e relacionados.
+
+Durante a conferência, encontramos uma diferença importante: a criação das tabelas usa nomes como cliente_id, veiculo_id, mecanico_id, ordem_id, servico_id, preco_praticado e preco_antigo. Em várias partes seguintes do arquivo são usados id_cliente, id_veiculo, id_mecanico, id_ordem, id_servico, valor_unitario e preco_anterior. Além disso, alguns campos utilizados depois, como telefone, email, marca, ano, cor, ativo, quantidade e tempo_estimado_min, não foram criados nas tabelas correspondentes. Esses nomes precisam ser padronizados.
+
+4. STORED PROCEDURES
+
+Criamos quatro procedures com a intenção de deixar algumas operações prontas para serem chamadas quando necessário.
+
+A cadastrar_cliente recebe os dados de um cliente, verifica se o nome foi preenchido e se o CPF já está cadastrado. Quando encontra um problema, usa SIGNAL para mostrar uma mensagem de erro. Porém, o INSERT dessa procedure usa telefone e email, campos que ainda não aparecem na criação da tabela clientes.
+
+A abrir_ordem verifica se o veículo existe e se o mecânico está ativo antes de cadastrar uma nova ordem. A ideia é evitar ordens ligadas a registros inválidos. Nessa parte, precisamos criar ou retirar o campo ativo e ajustar os nomes das colunas do INSERT para combinar com ordens_servico. Também usamos observacoes na procedure, mas essa coluna não foi criada.
+
+A alterar_status_ordem procura a ordem, verifica se o novo status é permitido e impede alterações em ordens já encerradas. Os estados aceitos pela procedure são aberta, em_andamento, finalizada e cancelada. A atualização usa uma coluna existente, mas é importante manter a mesma forma de escrever os status em todo o projeto, inclusive no valor padrão da tabela.
+
+A adicionar_item_ordem verifica se a ordem existe, se não está encerrada e se a quantidade é maior que zero. Depois, tenta registrar o serviço dentro da ordem. A lógica dessas verificações está presente, mas o INSERT utiliza id_ordem, id_servico e quantidade, enquanto a tabela itens_ordem foi criada com ordem_id, servico_id e preco_praticado. É necessário acertar essa diferença e definir como a quantidade e o valor do item serão armazenados.
+
+5. TRIGGERS
+
+Também montamos três triggers para automatizar tarefas que não deveriam depender de alguém preencher tudo manualmente.
+
+O trg_historico_preco foi definido como AFTER UPDATE na tabela servicos. Ele compara o preço antigo com o novo e, quando há alteração, tenta registrar os dois valores e a data em historico_precos. A ideia é manter um histórico de preços. Só precisamos corrigir os nomes usados no INSERT do histórico, porque não são iguais aos da tabela criada.
+
+O trg_data_finalizacao é um BEFORE UPDATE de ordens_servico. Quando o status muda para finalizada, ele coloca a data e a hora atuais em data_finalizacao antes que a atualização seja gravada. Nesse caso, os campos usados existem na tabela, e a lógica corresponde ao objetivo da trigger.
+
+O trg_valor_item é um BEFORE INSERT de itens_ordem. Ele tenta buscar o preço atual do serviço e colocá-lo automaticamente no item da ordem. Esse valor seria importante para manter registrado quanto foi cobrado, mesmo que a tabela servicos tenha o preço alterado depois. Entretanto, a trigger usa valor_unitario e id_servico, enquanto a tabela foi criada com preco_praticado e servico_id. Essa parte também precisa ser corrigida para funcionar junto com a estrutura atual.
+
+6. CONSULTAS SQL SOLICITADAS
+
+Depois da criação e dos cadastros, organizamos exemplos de CRUD. Há comandos INSERT para cadastrar registros, SELECT para visualizar, UPDATE para alterar e DELETE para excluir. Também colocamos consultas com WHERE, ORDER BY, BETWEEN, LIKE, IN, AND, OR e LIMIT. Elas servem, por exemplo, para procurar veículos de um cliente, ordens abertas e serviços por faixa de preço.
+
+Nas funções de agregação, utilizamos COUNT para contar clientes e veículos, MAX e MIN para identificar os serviços mais caro e mais barato, AVG para calcular a média dos preços e SUM para somar os valores do cadastro de serviços. Também há consultas com GROUP BY e HAVING para contar veículos por cliente, ordens por mecânico e selecionar mecânicos com mais de uma ordem.
+
+Os JOINs foram usados para juntar dados que ficam em tabelas diferentes. Montamos consultas de cliente com veículo, ordem com cliente e veículo, ordem com mecânico e ordem com os serviços registrados. Usamos ainda LEFT JOIN para mostrar todos os clientes, inclusive aqueles que não têm ordens. Nas subconsultas, procuramos serviços acima do preço médio, clientes que possuem ordens e serviços que nunca foram utilizados.
+
+No final, incluímos dois desafios de consulta. O primeiro procura a quantidade de ordens finalizadas e o total gasto por cliente, mantendo na lista quem não teve ordens finalizadas. O segundo busca o mecânico com maior valor somado dos itens das ordens, trazendo quantidade de ordens e de serviços. Do jeito que está escrito, esse segundo desafio considera ordens de qualquer status, não apenas as finalizadas.
+
+A variedade das consultas está no arquivo, mas várias delas dependem das colunas que precisam ser padronizadas. Assim, não podemos afirmar que todas executam corretamente na versão atual do banco.
+
+7. TESTES REALIZADOS E RESULTADOS REGISTRADOS
+
+Deixamos, no SQL, cinco exemplos comentados de testes de integridade: CPF duplicado, veículo vinculado a cliente inexistente, serviço com preço negativo, exclusão de cliente que possui veículo e ordem para veículo inexistente. Esses exemplos mostram quais restrições queremos verificar: UNIQUE, FOREIGN KEY e CHECK.
+
+Também registramos um roteiro de dez testes, com a operação, o resultado esperado e um resultado obtido anotado em comentário. Os cenários foram:
+
+1) Cadastrar cliente pela procedure: anotado como sucesso.
+2) Cadastrar um CPF repetido: anotado erro de CPF já cadastrado.
+3) Abrir ordem com veículo inexistente: anotado erro de veículo inexistente.
+4) Inserir serviço com preço negativo: anotada violação do CHECK.
+5) Alterar uma ordem para um status inválido: anotado erro de status inválido.
+6) Adicionar item a uma ordem finalizada: anotado bloqueio da operação.
+7) Adicionar item com quantidade zero: anotado erro de quantidade.
+8) Adicionar item corretamente: anotado sucesso com preço preenchido pela trigger.
+9) Excluir um cliente que possui veículo: anotado erro de chave estrangeira.
+10) Finalizar uma ordem: anotado preenchimento automático da data.
+
+É importante diferenciar os resultados escritos nos comentários de uma execução comprovada. As instruções desse roteiro estão comentadas e não rodam automaticamente. Além disso, a ordem 6 já aparece como finalizada nos dados iniciais. Por isso, os testes 7, 8 e 10, que usam essa mesma ordem, não correspondem ao estado cadastrado no próprio arquivo. O teste 1 também indica um ID que precisaria ser conferido depois dos INSERTs e DELETEs anteriores. Não temos, dentro do ZIP, capturas de tela ou um registro de execução que confirme todos os resultados descritos.
+
+8. DIFICULDADES ENCONTRADAS E AJUSTES NECESSÁRIOS
+
+A principal dificuldade identificada na revisão foi manter a definição das tabelas igual ao que usamos nas outras partes do código. Algumas procedures, triggers, inserções e consultas parecem ter sido escritas considerando uma versão mais completa das tabelas. Isso explica por que aparecem campos que não existem no começo do arquivo.
+
+Outro ponto foi a consistência dos testes. Percebemos que é necessário escolher ordens realmente abertas para testar a inserção de itens e a finalização. Também precisamos conferir os nomes das restrições e do banco, porque o script cria ofmi, mas um dos resultados de erro anotados menciona oficina. A restrição CHECK de preço também não recebeu, no CREATE TABLE, o nome que aparece nos comentários dos testes.
+
+Para resolver essas questões, precisamos primeiro decidir a versão definitiva das tabelas, ajustar os nomes das colunas e conferir a criação das triggers. Depois disso, o correto é executar o script desde o início em um banco novo, testar as consultas e rodar um cenário de cada vez, anotando os resultados reais. A revisão feita para este relatório foi sobre o código enviado; não executamos o banco em um servidor MySQL nesta análise.
+
+9. CONCLUSÃO
+
+Com esse projeto, conseguimos organizar a proposta de um banco de dados para oficina e trabalhar conceitos importantes, como chaves primárias e estrangeiras, restrições, CRUD, JOINs, subconsultas, procedures e triggers. O banco foi pensado para acompanhar o caminho do atendimento, desde o cadastro do cliente e do veículo até o registro dos serviços e o controle dos preços.
+
+A análise também mostrou que ainda precisamos unificar os nomes das colunas e repetir alguns testes antes de considerar o script completo como finalizado. Mesmo assim, o arquivo já apresenta a estrutura e as operações que queríamos desenvolver, além dos pontos que precisam de correção para que todas as partes funcionem em conjunto.
+
+REFERÊNCIA UTILIZADA: Arquivo Banco_de_Dados.sql enviado com o projeto (487 linhas). Este relatório descreve a versão presente no ZIP.
 
